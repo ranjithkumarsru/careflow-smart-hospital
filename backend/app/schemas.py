@@ -1,8 +1,8 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -16,6 +16,41 @@ class UserOut(BaseModel):
     full_name: str
     role: str
     model_config = ConfigDict(from_attributes=True)
+
+
+class StaffUserCreate(BaseModel):
+    email: EmailStr
+    full_name: str = Field(min_length=2, max_length=160)
+    password: str = Field(min_length=12, max_length=128)
+    role: Literal["admin", "reception", "clinician", "lab", "pharmacy", "billing"]
+
+    @field_validator("password")
+    @classmethod
+    def strong_password(cls, value: str) -> str:
+        if not any(char.isalpha() for char in value) or not any(char.isdigit() for char in value):
+            raise ValueError("Password must include at least one letter and one number")
+        return value
+
+
+class StaffUserOut(UserOut):
+    active: bool
+    created_at: datetime
+
+
+class StaffActiveUpdate(BaseModel):
+    active: bool
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=12, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def strong_password(cls, value: str) -> str:
+        if not any(char.isalpha() for char in value) or not any(char.isdigit() for char in value):
+            raise ValueError("Password must include at least one letter and one number")
+        return value
 
 
 class TokenOut(BaseModel):

@@ -1,10 +1,13 @@
+import secrets
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 
 
 class Settings(BaseSettings):
     app_name: str = "CareFlow Hospital API"
     database_url: str = "sqlite:///./hospital.db"
-    secret_key: str = "local-development-only-change-before-deploy"
+    secret_key: str = Field(default_factory=lambda: secrets.token_urlsafe(48))
     access_token_minutes: int = 60
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     admin_email: str = "admin@hospital.demo"

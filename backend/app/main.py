@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+import secrets
+import threading
+import time as monotonic_time
 from typing import Annotated, Callable
 from uuid import uuid4
 
@@ -41,6 +44,7 @@ from app.schemas import (
     LabOrderOut,
     LabResultUpdate,
     LoginRequest,
+    PasswordChange,
     MedicationCreate,
     MedicationOut,
     PatientCreate,
@@ -49,6 +53,9 @@ from app.schemas import (
     PrescriptionOut,
     ProviderOut,
     StockUpdate,
+    StaffActiveUpdate,
+    StaffUserCreate,
+    StaffUserOut,
     TokenOut,
     UserOut,
 )
@@ -77,8 +84,27 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
 bearer = HTTPBearer(auto_error=False)
 DbDep = Annotated[Session, Depends(get_db)]
+
+_dummy_password_hash = hash_password(secrets.token_urlsafe(32))
+_login_failures: dict[str, tuple[int, float, float]] = {}
+_login_failures_lock = threading.Lock()
+_login_window_seconds = 600
+_login_lockout_seconds = 900
+_login_max_attempts = 5
 
 
 def current_user(
@@ -192,15 +218,105 @@ def health() -> dict[str, str]:
 
 @app.post("/api/v1/auth/login", response_model=TokenOut, tags=["authentication"])
 def login(payload: LoginRequest, db: DbDep) -> dict:
-    user = db.scalar(select(User).where(User.email == payload.email.lower(), User.active.is_(True)))
-    if user is None or not verify_password(payload.password, user.password_hash):
+    email = payload.email.lower()
+    now = monotonic_time.monotonic()
+    with _login_failures_lock:
+        failure = _login_failures.get(email)
+        if failure and failure[2] > now:
+            raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again later.")
+        if failure and failure[2] and failure[2] <= now:
+            _login_failures.pop(email, None)
+    user = db.scalar(select(User).where(User.email == email))
+    valid_password = verify_password(payload.password, user.password_hash if user else _dummy_password_hash)
+    if user is None or not user.active or not valid_password:
+        with _login_failures_lock:
+            attempts, window_end, locked_until = _login_failures.get(email, (0, now + _login_window_seconds, 0.0))
+            if window_end <= now:
+                attempts, window_end, locked_until = 0, now + _login_window_seconds, 0.0
+            attempts += 1
+            if attempts >= _login_max_attempts:
+                locked_until = now + _login_lockout_seconds
+            _login_failures[email] = (attempts, window_end, locked_until)
+            if len(_login_failures) > 10_000:
+                _login_failures.clear()
+        if locked_until > now:
+            raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again later.")
         raise HTTPException(status_code=401, detail="Email or password is incorrect")
+    with _login_failures_lock:
+        _login_failures.pop(email, None)
+    audit(db, user, "user_signed_in", "user", user.id)
+    db.commit()
     return {"access_token": create_access_token(user.email), "user": user}
 
 
 @app.get("/api/v1/auth/me", response_model=UserOut, tags=["authentication"])
 def me(user: Annotated[User, Depends(current_user)]) -> User:
     return user
+
+
+@app.post("/api/v1/auth/password", tags=["authentication"])
+def change_password(
+    payload: PasswordChange,
+    db: DbDep,
+    user: Annotated[User, Depends(current_user)],
+) -> dict[str, str]:
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if verify_password(payload.new_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Choose a password you have not used before")
+    user.password_hash = hash_password(payload.new_password)
+    audit(db, user, "password_changed", "user", user.id)
+    db.commit()
+    return {"message": "Password changed"}
+
+
+@app.get("/api/v1/users", response_model=list[StaffUserOut], tags=["administration"])
+def list_staff_users(
+    db: DbDep,
+    _: Annotated[User, Depends(require_roles("admin"))],
+) -> list[User]:
+    return list(db.scalars(select(User).order_by(User.full_name)).all())
+
+
+@app.post("/api/v1/users", response_model=StaffUserOut, status_code=201, tags=["administration"])
+def create_staff_user(
+    payload: StaffUserCreate,
+    db: DbDep,
+    admin: Annotated[User, Depends(require_roles("admin"))],
+) -> User:
+    email = payload.email.lower()
+    if db.scalar(select(User.id).where(User.email == email)) is not None:
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    user = User(email=email, full_name=payload.full_name.strip(), role=payload.role, password_hash=hash_password(payload.password))
+    db.add(user)
+    db.flush()
+    audit(db, admin, "staff_account_created", "user", user.id, f"role={user.role}")
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@app.patch("/api/v1/users/{user_id}/active", response_model=StaffUserOut, tags=["administration"])
+def set_staff_user_active(
+    user_id: int,
+    payload: StaffActiveUpdate,
+    db: DbDep,
+    admin: Annotated[User, Depends(require_roles("admin"))],
+) -> User:
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if target.id == admin.id and not payload.active:
+        raise HTTPException(status_code=400, detail="You cannot disable your own account")
+    if target.active and target.role == "admin" and not payload.active:
+        active_admins = db.scalar(select(func.count(User.id)).where(User.active.is_(True), User.role == "admin")) or 0
+        if active_admins <= 1:
+            raise HTTPException(status_code=400, detail="The hospital must keep at least one active administrator")
+    target.active = payload.active
+    audit(db, admin, "staff_account_enabled" if payload.active else "staff_account_disabled", "user", target.id)
+    db.commit()
+    db.refresh(target)
+    return target
 
 
 @app.get("/api/v1/providers", response_model=list[ProviderOut], tags=["appointments"])

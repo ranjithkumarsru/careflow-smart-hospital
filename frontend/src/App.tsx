@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   Activity, ArrowDownRight, ArrowUpRight, Bell, CalendarDays, Check, ChevronDown, ClipboardList,
-  CreditCard, FlaskConical, LayoutDashboard, LogOut, Menu, Package, Plus, Search, ShieldCheck,
+  CreditCard, FlaskConical, KeyRound, LayoutDashboard, LogOut, Menu, Package, Plus, Search, ShieldCheck,
   Stethoscope, Users, X,
 } from "lucide-react";
 import { money } from "./format";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
-type View = "overview" | "patients" | "appointments" | "clinical" | "laboratory" | "pharmacy" | "billing";
+// Use the current site origin by default. This keeps API calls working through
+// a share tunnel; deployments with a separate API can set VITE_API_URL.
+const API = import.meta.env.VITE_API_URL || "";
+type View = "overview" | "patients" | "appointments" | "clinical" | "laboratory" | "pharmacy" | "billing" | "staff";
 type User = { id: number; email: string; full_name: string; role: string };
+type StaffAccount = User & { active: boolean; created_at: string };
 type Patient = { id: number; medical_record_number: string; full_name: string; date_of_birth: string; sex: string; phone: string; email: string; blood_group: string; allergies: string };
 type Provider = { id: number; full_name: string; specialty: string; department: string };
 type Appointment = { id: number; patient_id: number; provider_id: number; patient_name: string; provider_name: string; scheduled_at: string; reason: string; status: string; notes: string };
@@ -29,6 +32,7 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard; section: str
   { id: "laboratory", label: "Laboratory", icon: FlaskConical, section: "Care delivery" },
   { id: "pharmacy", label: "Pharmacy", icon: Package, section: "Operations" },
   { id: "billing", label: "Billing", icon: CreditCard, section: "Operations" },
+  { id: "staff", label: "Staff accounts", icon: ShieldCheck, section: "Administration" },
 ];
 
 async function api<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
@@ -73,6 +77,7 @@ export default function App() {
   const [view, setView] = useState<View>("overview");
   const [notice, setNotice] = useState<{ text: string; kind: "success" | "error" } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const flash: Notice = (text, kind = "success") => {
     setNotice({ text, kind });
     window.setTimeout(() => setNotice(null), 3500);
@@ -87,24 +92,27 @@ export default function App() {
     setToken(""); setUser(null);
   };
   if (!token || !user) return <Login onLogin={onLogin} />;
-  const current = nav.find((item) => item.id === view)!;
-  const Page = view === "overview" ? Dashboard : view === "patients" ? PatientsPage : view === "appointments" ? AppointmentsPage : view === "clinical" ? ClinicalPage : view === "laboratory" ? LaboratoryPage : view === "pharmacy" ? PharmacyPage : BillingPage;
+  const visibleNav = user.role === "admin" ? nav : nav.filter((item) => item.id !== "staff");
+  const current = visibleNav.find((item) => item.id === view) || nav[0];
+  const Page = view === "staff" && user.role === "admin" ? StaffPage : view === "overview" ? Dashboard : view === "patients" ? PatientsPage : view === "appointments" ? AppointmentsPage : view === "clinical" ? ClinicalPage : view === "laboratory" ? LaboratoryPage : view === "pharmacy" ? PharmacyPage : BillingPage;
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
         <div className="brand"><div className="brand-mark"><Activity size={21} /></div><div><strong>careflow</strong><span>HOSPITAL OS</span></div></div>
         <div className="workspace-pill"><span className="online-dot" /> City General Hospital <ChevronDown size={14} /></div>
-        {(["Workspace", "Care delivery", "Operations"] as const).map((section) => (
-          <div className="nav-group" key={section}><p className="nav-label">{section}</p>
-            {nav.filter((item) => item.section === section).map(({ id, label, icon: Icon }) => (
+        {(["Workspace", "Care delivery", "Operations", "Administration"] as const).map((section) => {
+          const items = visibleNav.filter((item) => item.section === section);
+          return items.length ? <div className="nav-group" key={section}><p className="nav-label">{section}</p>
+            {items.map(({ id, label, icon: Icon }) => (
               <button className={`nav-item ${view === id ? "active" : ""}`} key={id} onClick={() => { setView(id); setSidebarOpen(false); }}>
                 <Icon size={18} strokeWidth={1.8} /><span>{label}</span>{id === "laboratory" && <span className="nav-count">2</span>}
               </button>
             ))}
-          </div>
-        ))}
+          </div> : null;
+        })}
         <div className="sidebar-bottom"><div className="sidebar-note"><ShieldCheck size={16} /><span>Secure workspace</span><span className="note-live">LIVE</span></div>
           <div className="profile-row"><div className="avatar avatar-blue">{initials(user.full_name)}</div><div className="profile-copy"><strong>{user.full_name}</strong><span>{user.role}</span></div>
+            <button className="icon-button" title="Change password" aria-label="Change password" onClick={() => setPasswordOpen(true)}><KeyRound size={16}/></button>
             <button className="icon-button" title="Sign out" onClick={logout}><LogOut size={17} /></button></div>
         </div>
       </aside>
@@ -119,13 +127,14 @@ export default function App() {
         <div className="content-area"><Page token={token} flash={flash} /></div>
       </main>
       {notice && <div className={`toast toast-${notice.kind}`} role="status">{notice.kind === "success" ? <Check size={17} /> : <X size={17} />}{notice.text}</div>}
+      {passwordOpen && <ChangePassword token={token} close={() => setPasswordOpen(false)} flash={flash}/>}
     </div>
   );
 }
 
 function Login({ onLogin }: { onLogin: (token: string, user: User) => void }) {
-  const [email, setEmail] = useState("admin@hospital.demo");
-  const [password, setPassword] = useState("ChangeMe123!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   async function submit(event: FormEvent) {
@@ -138,7 +147,7 @@ function Login({ onLogin }: { onLogin: (token: string, user: User) => void }) {
     <div className="login-copy"><div className="eyebrow">HOSPITAL OPERATIONS PLATFORM</div><h1>Care teams, in sync.</h1><p>One clear view of patient care and hospital operations.</p></div>
     <form className="login-form" onSubmit={submit}><label>Email address<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
       {error && <p className="form-error">{error}</p>}<button className="primary-button login-submit" disabled={busy}>{busy ? "Signing in…" : "Sign in to CareFlow"}</button></form>
-    <p className="login-demo">Demo workspace · admin@hospital.demo</p><div className="login-footer"><ShieldCheck size={15} /> Encrypted session · Role-based access</div></div>
+    <p className="login-demo">Use the CareFlow account provided by your hospital administrator.</p><div className="login-footer"><ShieldCheck size={15} /> Protected sign-in · Role-based access</div></div>
     <div className="login-art"><div className="art-orbit orbit-one"/><div className="art-orbit orbit-two"/><div className="art-card"><div className="art-card-head"><span className="pulse-dot" /> TODAY'S CARE SNAPSHOT</div><div className="art-pulse"><span/><span/><span/><span/><span/><span/><span/><span/><span/><span/><span/><span/></div><div className="art-numbers"><div><strong>128</strong><small>Patients today</small></div><div><strong>94.8%</strong><small>On-time care</small></div></div><div className="art-bottom"><span>Care delivery index</span><strong>+12.4% <ArrowUpRight size={14}/></strong></div></div><div className="art-caption">BETTER COORDINATION. MORE HUMAN CARE.</div></div></div>;
 }
 
@@ -149,7 +158,62 @@ function SectionHeading({ title, action }: { title: string; action?: ReactNode }
 function Empty({ text }: { text: string }) { return <div className="empty-state">{text}</div>; }
 function LoadingOrError({ loading, error }: { loading: boolean; error: string }) { return loading ? <div className="empty-state">Loading records…</div> : error ? <div className="empty-state error-text">{error}</div> : null; }
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}</label>; }
-function FormActions({ busy, onCancel }: { busy: boolean; onCancel: () => void }) { return <div className="form-actions"><button type="button" className="secondary-button" onClick={onCancel}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Saving…" : "Save record"}</button></div>; }
+function FormActions({ busy, onCancel, label = "Save record" }: { busy: boolean; onCancel: () => void; label?: string }) { return <div className="form-actions"><button type="button" className="secondary-button" onClick={onCancel}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Saving…" : label}</button></div>; }
+
+function StaffPage({ token, flash }: { token: string; flash: Notice }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const staff = useCollection<StaffAccount>("/api/v1/users", token);
+  async function createAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true);
+    const data = new FormData(event.currentTarget);
+    const payload = { full_name: data.get("full_name"), email: data.get("email"), role: data.get("role"), password: data.get("password") };
+    try {
+      await api<StaffAccount>("/api/v1/users", token, { method: "POST", body: JSON.stringify(payload) });
+      setOpen(false); flash("Staff account created"); void staff.refresh();
+    } catch (cause) { flash(cause instanceof Error ? cause.message : "Could not create account", "error"); }
+    finally { setBusy(false); }
+  }
+  async function setActive(account: StaffAccount) {
+    try {
+      await api<StaffAccount>(`/api/v1/users/${account.id}/active`, token, { method: "PATCH", body: JSON.stringify({ active: !account.active }) });
+      flash(account.active ? "Staff account disabled" : "Staff account enabled"); void staff.refresh();
+    } catch (cause) { flash(cause instanceof Error ? cause.message : "Could not update account", "error"); }
+  }
+  return <><PageTitle eyebrow="ADMINISTRATION" title="Staff accounts" description="Give each team member their own CareFlow sign-in and role." action={<button className="primary-button" onClick={() => setOpen(true)}><Plus size={16}/> Add staff account</button>}/>
+    <section className="panel table-panel"><div className="table-toolbar"><div><SectionHeading title="Hospital accounts"/><p className="table-caption">Passwords are stored as secure hashes. Give initial passwords privately.</p></div><span className="subtle-label">{staff.items.filter((item) => item.active).length} active</span></div><LoadingOrError loading={staff.loading} error={staff.error}/>{!staff.loading && <div className="table-scroll"><table><thead><tr><th>Staff member</th><th>Email sign-in</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody>{staff.items.map((account) => <tr key={account.id}><td><strong>{account.full_name}</strong></td><td>{account.email}</td><td><span className="status status-scheduled">{account.role}</span></td><td><span className={account.active ? "status status-completed" : "status status-cancelled"}>{account.active ? "Active" : "Disabled"}</span></td><td><button className="small-action" disabled={account.id === Number(JSON.parse(sessionStorage.getItem("careflow-user") || "{}").id) && account.active} onClick={() => void setActive(account)}>{account.active ? "Disable account" : "Enable account"}</button></td></tr>)}</tbody></table>{staff.items.length === 0 && <Empty text="No staff accounts yet."/>}</div>}</section>
+    {open && <Modal title="Create staff account" close={() => setOpen(false)}><form className="form-grid" onSubmit={createAccount}>
+      <Field label="Staff member name"><input name="full_name" required minLength={2} maxLength={160} autoComplete="name"/></Field>
+      <Field label="Email used to sign in"><input name="email" type="email" required maxLength={255} autoComplete="email"/></Field>
+      <Field label="Role"><select name="role" defaultValue="reception" required><option value="reception">Reception</option><option value="clinician">Clinician</option><option value="lab">Laboratory</option><option value="pharmacy">Pharmacy</option><option value="billing">Billing</option><option value="admin">Administrator</option></select></Field>
+      <Field label="Temporary CareFlow password"><input name="password" type="password" minLength={12} maxLength={128} autoComplete="new-password" required/><small>At least 12 characters, with a letter and a number. Ask them to change it after their first sign-in.</small></Field>
+      <p className="form-span muted">This is a CareFlow password, not their email password. Share it privately; it is never sent by this app.</p>
+      <div className="form-span"><FormActions busy={busy} onCancel={() => setOpen(false)} label="Create account"/></div>
+    </form></Modal>}
+  </>;
+}
+
+function ChangePassword({ token, close, flash }: { token: string; close: () => void; flash: Notice }) {
+  const [busy, setBusy] = useState(false);
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true);
+    const data = new FormData(event.currentTarget);
+    const currentPassword = String(data.get("current_password") || "");
+    const newPassword = String(data.get("new_password") || "");
+    if (newPassword !== data.get("confirm_password")) { flash("New passwords do not match", "error"); setBusy(false); return; }
+    try {
+      await api("/api/v1/auth/password", token, { method: "POST", body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }) });
+      close(); flash("Password changed");
+    } catch (cause) { flash(cause instanceof Error ? cause.message : "Could not change password", "error"); }
+    finally { setBusy(false); }
+  }
+  return <Modal title="Change your password" close={close}><form className="form-grid" onSubmit={save}>
+    <Field label="Current CareFlow password"><input name="current_password" type="password" autoComplete="current-password" required/></Field>
+    <Field label="New password"><input name="new_password" type="password" minLength={12} maxLength={128} autoComplete="new-password" required/><small>Use at least 12 characters, including a letter and a number.</small></Field>
+    <Field label="Confirm new password"><input name="confirm_password" type="password" minLength={12} maxLength={128} autoComplete="new-password" required/></Field>
+    <div className="form-span"><FormActions busy={busy} onCancel={close} label="Update password"/></div>
+  </form></Modal>;
+}
 
 function Dashboard({ token, flash }: { token: string; flash: Notice }) {
   const [summary, setSummary] = useState<Summary | null>(null);
