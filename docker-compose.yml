@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: careflow
+      POSTGRES_USER: careflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-careflow_demo_only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U careflow -d careflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://careflow:${POSTGRES_PASSWORD:-careflow_demo_only}@db:5432/careflow
+      SECRET_KEY: ${SECRET_KEY:-local-development-only-change-before-deploy}
+      CORS_ORIGINS: http://localhost:5173
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@hospital.demo}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ChangeMe123!}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      CURRENCY: ${CURRENCY:-INR}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      target: dev
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
