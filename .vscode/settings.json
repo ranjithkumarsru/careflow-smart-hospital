@@ -5,13 +5,15 @@
     "**/__pycache__": true,
     "**/.pytest_cache": true,
     "**/.venv": true,
-    "**/hospital.db": true
+    "**/hospital.db": true,
+    "work": true
   },
   "search.exclude": {
     "**/node_modules": true,
     "**/dist": true,
     "**/__pycache__": true,
     "**/.pytest_cache": true,
-    "**/.venv": true
+    "**/.venv": true,
+    "work": true
   }
 }
