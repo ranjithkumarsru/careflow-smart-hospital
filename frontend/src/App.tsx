@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import {
   Activity, ArrowDownRight, ArrowUpRight, Bell, CalendarDays, Check, ChevronDown, ClipboardList,
   CreditCard, FlaskConical, KeyRound, LayoutDashboard, LogOut, Menu, Package, Plus, Search, ShieldCheck,
-  Stethoscope, Users, X,
+  Sparkles, Stethoscope, Users, X,
 } from "lucide-react";
 import { money } from "./format";
 
 // Use the current site origin by default. This keeps API calls working through
 // a share tunnel; deployments with a separate API can set VITE_API_URL.
 const API = import.meta.env.VITE_API_URL || "";
-type View = "overview" | "patients" | "appointments" | "clinical" | "laboratory" | "pharmacy" | "billing" | "staff";
+type View = "overview" | "patients" | "appointments" | "clinical" | "assistant" | "laboratory" | "pharmacy" | "billing" | "staff";
 type User = { id: number; email: string; full_name: string; role: string };
 type StaffAccount = User & { active: boolean; created_at: string };
 type Patient = { id: number; medical_record_number: string; full_name: string; date_of_birth: string; sex: string; phone: string; email: string; blood_group: string; allergies: string };
@@ -29,6 +29,7 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard; section: str
   { id: "patients", label: "Patients", icon: Users, section: "Workspace" },
   { id: "appointments", label: "Appointments", icon: CalendarDays, section: "Workspace" },
   { id: "clinical", label: "Clinical records", icon: Stethoscope, section: "Care delivery" },
+  { id: "assistant", label: "AI Assistant Demo", icon: Sparkles, section: "Care delivery" },
   { id: "laboratory", label: "Laboratory", icon: FlaskConical, section: "Care delivery" },
   { id: "pharmacy", label: "Pharmacy", icon: Package, section: "Operations" },
   { id: "billing", label: "Billing", icon: CreditCard, section: "Operations" },
@@ -94,7 +95,7 @@ export default function App() {
   if (!token || !user) return <Login onLogin={onLogin} />;
   const visibleNav = user.role === "admin" ? nav : nav.filter((item) => item.id !== "staff");
   const current = visibleNav.find((item) => item.id === view) || nav[0];
-  const Page = view === "staff" && user.role === "admin" ? StaffPage : view === "overview" ? Dashboard : view === "patients" ? PatientsPage : view === "appointments" ? AppointmentsPage : view === "clinical" ? ClinicalPage : view === "laboratory" ? LaboratoryPage : view === "pharmacy" ? PharmacyPage : BillingPage;
+  const Page = view === "staff" && user.role === "admin" ? StaffPage : view === "overview" ? Dashboard : view === "patients" ? PatientsPage : view === "appointments" ? AppointmentsPage : view === "clinical" ? ClinicalPage : view === "assistant" ? AssistantDemoPage : view === "laboratory" ? LaboratoryPage : view === "pharmacy" ? PharmacyPage : view === "billing" ? BillingPage : Dashboard;
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
@@ -282,6 +283,69 @@ function AppointmentsPage({ token, flash }: { token: string; flash: Notice }) {
     <section className="panel table-panel"><div className="table-toolbar"><div><SectionHeading title="Appointment schedule"/><p className="table-caption">{appointments.items.length} scheduled visits</p></div><div className="subtle-label"><CalendarDays size={15}/> All dates</div></div><LoadingOrError loading={appointments.loading || patients.loading || providers.loading} error={appointments.error || patients.error || providers.error}/>
       {!appointments.loading && !appointments.error && <div className="table-scroll"><table><thead><tr><th>Date & time</th><th>Patient</th><th>Provider</th><th>Reason</th><th>Status</th><th>Next action</th></tr></thead><tbody>{sorted.map((item) => <tr key={item.id}><td><strong>{dateLabel(item.scheduled_at, { month: "short", day: "numeric" })}</strong><span className="cell-subline">{timeLabel(item.scheduled_at)}</span></td><td>{item.patient_name}</td><td>{item.provider_name}</td><td>{item.reason}</td><td><span className={classStatus(item.status)}>{item.status.replaceAll("_", " ")}</span></td><td>{["scheduled", "confirmed"].includes(item.status) ? <button className="small-action" onClick={() => void update(item, "checked_in")}>Check in</button> : item.status === "checked_in" ? <button className="small-action" onClick={() => void update(item, "completed")}>Complete</button> : <span className="muted">—</span>}</td></tr>)}</tbody></table>{sorted.length === 0 && <Empty text="No appointments yet. Schedule the first visit."/>}</div>}</section>
     {open && <Modal title="Schedule an appointment" close={() => setOpen(false)}><form className="form-grid" onSubmit={save}><Field label="Patient"><select name="patient_id" required defaultValue=""><option value="" disabled>Select patient</option>{patients.items.map((p)=><option key={p.id} value={p.id}>{p.full_name} · {p.medical_record_number}</option>)}</select></Field><Field label="Provider"><select name="provider_id" required defaultValue=""><option value="" disabled>Select provider</option>{providers.items.map((p)=><option key={p.id} value={p.id}>{p.full_name} · {p.department}</option>)}</select></Field><Field label="Date and time"><input type="datetime-local" name="scheduled_at" required/></Field><Field label="Visit reason"><input name="reason" required minLength={2}/></Field><div className="form-span"><FormActions busy={busy} onCancel={() => setOpen(false)}/></div></form></Modal>}
+  </>;
+}
+
+function AssistantDemoPage(_props: { token: string; flash: Notice }) {
+  const [messages, setMessages] = useState<Array<{ role: "assistant" | "you"; text: string }>>([
+    { role: "assistant", text: "Welcome to the CareFlow assistant demo. Try a sample prompt below. The patient details and replies are fictional examples." },
+  ]);
+  const scenarios = [
+    {
+      prompt: "Summarize a fictional visit",
+      reply: "Fictional sample: Alex Morgan attended a routine follow-up. The sample chart lists a seasonal allergy and no pending lab orders. This is only a summary of example details; it does not infer a condition or suggest treatment.",
+    },
+    {
+      prompt: "Prepare a sample handoff",
+      reply: "Fictional handoff: Alex Morgan is here for a routine follow-up. One sample CBC order is marked pending. Please check the chart and confirm the current lab status before relying on this example.",
+    },
+    {
+      prompt: "What can this assistant help with?",
+      reply: "This screen demonstrates how an assistant could organize recorded information for staff. A future connected assistant could help summarize notes for review. This demo does not diagnose, rank risk, recommend treatment, or send data to an AI provider.",
+    },
+  ];
+
+  function runScenario(scenario: (typeof scenarios)[number]) {
+    setMessages((current) => [...current, { role: "you", text: scenario.prompt }, { role: "assistant", text: scenario.reply }]);
+  }
+
+  function resetDemo() {
+    setMessages([{ role: "assistant", text: "Welcome to the CareFlow assistant demo. Try a sample prompt below. The patient details and replies are fictional examples." }]);
+  }
+
+  return <>
+    <PageTitle eyebrow="ASSISTED WORKFLOW · DEMO" title="AI Assistant" description="Explore a safe example of how an assistant could help staff prepare and organize information." />
+    <div className="ai-demo-layout">
+      <section className="panel ai-demo-panel">
+        <div className="ai-demo-heading">
+          <div className="prep-icon"><Sparkles size={17}/></div>
+          <div><div className="eyebrow">FICTIONAL EXAMPLES ONLY</div><h2>CareFlow assistant preview</h2></div>
+          <span className="ai-demo-badge">DEMO</span>
+        </div>
+        <p className="ai-demo-intro">Choose an example to see how an assistant might organize a handoff or summarize a visit.</p>
+        <div className="ai-demo-disclosure"><ShieldCheck size={16}/><span>This is a simulated demo: replies are prepared examples, no AI model is connected, and no patient data is used or sent anywhere. It does not diagnose or recommend treatment.</span></div>
+        <div className="ai-demo-prompts" aria-label="Sample assistant prompts">
+          {scenarios.map((scenario) => <button key={scenario.prompt} className="secondary-button" onClick={() => runScenario(scenario)}><Sparkles size={14}/>{scenario.prompt}</button>)}
+        </div>
+        <div className="ai-demo-chat" role="log" aria-live="polite" aria-label="Demo conversation">
+          {messages.map((message, index) => <div key={`${message.role}-${index}`} className={`ai-message ai-message-${message.role}`}>
+            <span>{message.role === "assistant" ? "CareFlow assistant · demo" : "Sample prompt"}</span>
+            <p>{message.text}</p>
+          </div>)}
+        </div>
+        <div className="ai-demo-footer"><span>For education and presentation only · clinician review is required</span><button className="text-button" onClick={resetDemo}>Reset demo</button></div>
+      </section>
+      <aside className="panel ai-demo-side">
+        <div className="eyebrow">HOW TO PRESENT</div>
+        <h2>Show a sample workflow</h2>
+        <ol>
+          <li>Choose a sample prompt.</li>
+          <li>Review the example reply and its source details.</li>
+          <li>Explain that real AI is not connected in this version.</li>
+        </ol>
+        <div className="ethics-note"><ShieldCheck size={16}/><span>Never enter real patient information into this demo.</span></div>
+      </aside>
+    </div>
   </>;
 }
 

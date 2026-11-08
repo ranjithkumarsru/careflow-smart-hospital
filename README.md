@@ -17,6 +17,7 @@ CareFlow is a full-stack educational MVP for coordinating hospital operations. I
 - Administrator-managed staff accounts with individual roles, account disabling, and password changes
 - Temporary login throttling for repeated failed passwords and basic API security headers
 - A clinician-reviewed chart-context draft assembled from recorded data; it does not generate diagnoses or treatment recommendations
+- An AI Assistant demo page with fictional sample prompts and prepared replies; no AI model is connected
 - API and frontend automated tests, Docker Compose, container builds, and deployment/security documentation
 
 ## Start the full stack with Docker

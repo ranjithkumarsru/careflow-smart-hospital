@@ -167,6 +167,28 @@ td strong { color: #354459; font-size: 9px; font-weight: 700; }
 .ethics-note { display: flex; align-items: flex-start; gap: 8px; border-top: 1px solid #edf1f4; margin-top: 16px; padding-top: 13px; color: #82918e; font-size: 8px; line-height: 1.55; }
 .ethics-note svg { flex: 0 0 auto; color: #39a48e; }
 .summary-output { margin-top: 13px; padding: 11px; border: 1px solid #e6eeeb; background: #f8fcfa; border-radius: 7px; }.summary-output strong { color: #40546b; font-size: 9px; }.summary-output p { margin: 6px 0; font-size: 8px; color: #728195; }.summary-output small { display: block; color: #97a39f; font-size: 7px; line-height: 1.4; }
+.ai-demo-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(230px, .7fr); gap: 16px; align-items: start; }
+.ai-demo-panel, .ai-demo-side { padding: 19px; }
+.ai-demo-heading { display: flex; align-items: center; gap: 11px; }
+.ai-demo-heading .prep-icon { flex: 0 0 auto; margin: 0; }
+.ai-demo-heading .eyebrow { margin-bottom: 4px; }
+.ai-demo-heading h2, .ai-demo-side h2 { font: 700 14px Manrope,sans-serif; color: #26354a; margin: 0; }
+.ai-demo-badge { margin-left: auto; padding: 5px 8px; border: 1px solid #d7ece5; border-radius: 999px; color: #278e7b; background: #f0faf6; font-size: 8px; font-weight: 800; letter-spacing: .5px; }
+.ai-demo-intro { margin: 15px 0 11px; color: #7d8b9a; font-size: 10px; line-height: 1.6; }
+.ai-demo-disclosure { display: flex; align-items: flex-start; gap: 8px; padding: 10px 11px; border: 1px solid #e9e4cf; border-radius: 8px; color: #7c7048; background: #fffdf4; font-size: 9px; line-height: 1.55; }
+.ai-demo-disclosure svg { flex: 0 0 auto; color: #ad9453; }
+.ai-demo-prompts { display: flex; flex-wrap: wrap; gap: 8px; margin: 13px 0; }
+.ai-demo-prompts button { display: inline-flex; align-items: center; gap: 6px; min-height: 31px; padding: 0 10px; font-size: 9px; }
+.ai-demo-chat { display: grid; gap: 10px; max-height: 380px; overflow-y: auto; padding: 13px; border: 1px solid #edf1f4; border-radius: 9px; background: #fbfcfd; }
+.ai-message { width: min(92%, 560px); padding: 10px 12px; border: 1px solid #e7eeeb; border-radius: 9px; background: white; }
+.ai-message-you { justify-self: end; border-color: #dce8fb; background: #f5f8ff; }
+.ai-message > span { color: #388f7f; font-size: 8px; font-weight: 700; }
+.ai-message-you > span { color: #6b83ae; }
+.ai-message p { margin: 5px 0 0; color: #58697d; font-size: 9px; line-height: 1.6; }
+.ai-demo-footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; color: #98a4b1; font-size: 8px; }
+.ai-demo-side .eyebrow { margin-bottom: 7px; }
+.ai-demo-side ol { display: grid; gap: 10px; margin: 15px 0; padding-left: 19px; color: #718094; font-size: 9px; line-height: 1.5; }
+.ai-demo-side li::marker { color: #39a48e; font-weight: 800; }
 .med-cell { display: flex; align-items: center; gap: 8px; }.med-cell strong, .med-cell span { display: block; }.med-cell span { color: #9ba6b3; font-size: 8px; margin-top: 3px; }.med-icon { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 7px; color: #9a7ac7; background: #f4effa; }
 .stock-low { color: #c27644; font-weight: 700; }.stock-good { color: #418d79; font-weight: 600; }
 .stock-adjust { display: inline-flex; align-items: center; border: 1px solid #e6ebf0; border-radius: 6px; overflow: hidden; height: 26px; }.stock-adjust button { height: 25px; width: 26px; border: 0; color: #748397; background: #fbfcfd; }.stock-adjust button:hover { color: #238e81; background: #eef8f5; }.stock-adjust span { min-width: 29px; text-align: center; color: #58677b; font-size: 9px; }
@@ -219,6 +241,7 @@ td strong { color: #354459; font-size: 9px; font-weight: 700; }
   .dashboard-grid { grid-template-columns: 1fr; }
   .department-panel { min-height: auto; }
   .clinical-layout { grid-template-columns: 1fr; }
+  .ai-demo-layout { grid-template-columns: 1fr; }
   .workflow-strip { flex-wrap: wrap; }.workflow-strip > div:first-child { flex-basis: 100%; }
   .login-screen { grid-template-columns: 1fr; }.login-art { display: none; }.login-panel { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
 }
