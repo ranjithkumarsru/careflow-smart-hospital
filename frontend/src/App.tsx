@@ -9,19 +9,28 @@ import { money } from "./format";
 // Use the current site origin by default. This keeps API calls working through
 // a share tunnel; deployments with a separate API can set VITE_API_URL.
 const API = import.meta.env.VITE_API_URL || "";
-type View = "overview" | "patients" | "appointments" | "clinical" | "assistant" | "laboratory" | "pharmacy" | "billing" | "staff";
+type View = "overview" | "patients" | "appointments" | "clinical" | "assistant" | "laboratory" | "pharmacy" | "billing" | "staff" | "patient-portal";
 type User = { id: number; email: string; full_name: string; role: string };
-type StaffAccount = User & { active: boolean; created_at: string };
+type StaffAccount = User & { patient_id?: number | null; active: boolean; created_at: string };
 type Patient = { id: number; medical_record_number: string; full_name: string; date_of_birth: string; sex: string; phone: string; email: string; blood_group: string; allergies: string };
 type Provider = { id: number; full_name: string; specialty: string; department: string };
 type Appointment = { id: number; patient_id: number; provider_id: number; patient_name: string; provider_name: string; scheduled_at: string; reason: string; status: string; notes: string };
 type Encounter = { id: number; patient_id: number; provider_id: number; chief_complaint: string; clinician_assessment: string; clinician_notes: string; plan: string; created_at: string };
 type LabOrder = { id: number; patient_id: number; test_name: string; status: string; result: string; ordered_at: string };
 type Medication = { id: number; name: string; strength: string; quantity_on_hand: number; reorder_level: number; unit_price: number };
-type Prescription = { id: number; patient_id: number; medication_id: number; medication_name: string; patient_name: string; dosage: string; frequency: string; duration_days: number; status: string };
+type Prescription = { id: number; patient_id: number; medication_id: number; medication_name: string; patient_name: string; dosage: string; frequency: string; duration_days: number; status: string; created_at: string };
 type InvoiceLine = { id: number; description: string; quantity: number; unit_price: number };
 type Invoice = { id: number; patient_id: number; patient_name: string; status: string; currency: string; total: number; created_at: string; lines: InvoiceLine[] };
 type Summary = { patients_total: number; appointments_today: number; pending_labs: number; low_stock_count: number; outstanding_balance: string; currency: string; recent_appointments: Appointment[]; department_activity: { department: string; appointments: number }[] };
+type PatientPortal = {
+  patient: Patient & { address: string };
+  appointments: Array<Pick<Appointment, "id" | "provider_name" | "scheduled_at" | "reason" | "status">>;
+  encounters: Array<Pick<Encounter, "id" | "chief_complaint" | "clinician_assessment" | "plan" | "created_at"> & { provider_name: string; vitals: Record<string, string | number> }>;
+  labs: LabOrder[];
+  prescriptions: Prescription[];
+  invoices: Invoice[];
+  notice: string;
+};
 type Notice = (message: string, kind?: "success" | "error") => void;
 
 const nav: { id: View; label: string; icon: typeof LayoutDashboard; section: string }[] = [
@@ -86,16 +95,17 @@ export default function App() {
   const onLogin = (nextToken: string, nextUser: User) => {
     sessionStorage.setItem("careflow-token", nextToken);
     sessionStorage.setItem("careflow-user", JSON.stringify(nextUser));
-    setToken(nextToken); setUser(nextUser);
+    setToken(nextToken); setUser(nextUser); setView(nextUser.role === "patient" ? "patient-portal" : "overview");
   };
   const logout = () => {
     sessionStorage.removeItem("careflow-token"); sessionStorage.removeItem("careflow-user");
-    setToken(""); setUser(null);
+    setToken(""); setUser(null); setView("overview");
   };
   if (!token || !user) return <Login onLogin={onLogin} />;
-  const visibleNav = user.role === "admin" ? nav : nav.filter((item) => item.id !== "staff");
-  const current = visibleNav.find((item) => item.id === view) || nav[0];
-  const Page = view === "staff" && user.role === "admin" ? StaffPage : view === "overview" ? Dashboard : view === "patients" ? PatientsPage : view === "appointments" ? AppointmentsPage : view === "clinical" ? ClinicalPage : view === "assistant" ? AssistantDemoPage : view === "laboratory" ? LaboratoryPage : view === "pharmacy" ? PharmacyPage : view === "billing" ? BillingPage : Dashboard;
+  const patientNav: typeof nav = [{ id: "patient-portal", label: "My health", icon: Users, section: "Workspace" }];
+  const visibleNav = user.role === "patient" ? patientNav : user.role === "admin" ? nav : nav.filter((item) => item.id !== "staff");
+  const current = visibleNav.find((item) => item.id === view) || visibleNav[0];
+  const Page = user.role === "patient" ? PatientPortalPage : view === "staff" && user.role === "admin" ? StaffPage : view === "overview" ? Dashboard : view === "patients" ? PatientsPage : view === "appointments" ? AppointmentsPage : view === "clinical" ? ClinicalPage : view === "assistant" ? AssistantDemoPage : view === "laboratory" ? LaboratoryPage : view === "pharmacy" ? PharmacyPage : view === "billing" ? BillingPage : Dashboard;
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
@@ -163,8 +173,10 @@ function FormActions({ busy, onCancel, label = "Save record" }: { busy: boolean;
 
 function StaffPage({ token, flash }: { token: string; flash: Notice }) {
   const [open, setOpen] = useState(false);
+  const [patientLoginOpen, setPatientLoginOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const staff = useCollection<StaffAccount>("/api/v1/users", token);
+  const patients = useCollection<Patient>("/api/v1/patients", token);
   async function createAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true);
     const data = new FormData(event.currentTarget);
@@ -175,14 +187,27 @@ function StaffPage({ token, flash }: { token: string; flash: Notice }) {
     } catch (cause) { flash(cause instanceof Error ? cause.message : "Could not create account", "error"); }
     finally { setBusy(false); }
   }
+  async function createPatientLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true);
+    const data = new FormData(event.currentTarget);
+    const patient = patients.items.find((item) => item.id === Number(data.get("patient_id")));
+    if (!patient?.email) { flash("Choose a patient with an email address on their record", "error"); setBusy(false); return; }
+    const payload = { full_name: patient.full_name, email: patient.email, role: "patient", patient_id: patient.id, password: data.get("password") };
+    try {
+      await api<StaffAccount>("/api/v1/users", token, { method: "POST", body: JSON.stringify(payload) });
+      setPatientLoginOpen(false); flash("Patient login created. Share the temporary password privately."); void staff.refresh();
+    } catch (cause) { flash(cause instanceof Error ? cause.message : "Could not create patient login", "error"); }
+    finally { setBusy(false); }
+  }
   async function setActive(account: StaffAccount) {
     try {
       await api<StaffAccount>(`/api/v1/users/${account.id}/active`, token, { method: "PATCH", body: JSON.stringify({ active: !account.active }) });
       flash(account.active ? "Staff account disabled" : "Staff account enabled"); void staff.refresh();
     } catch (cause) { flash(cause instanceof Error ? cause.message : "Could not update account", "error"); }
   }
-  return <><PageTitle eyebrow="ADMINISTRATION" title="Staff accounts" description="Give each team member their own CareFlow sign-in and role." action={<button className="primary-button" onClick={() => setOpen(true)}><Plus size={16}/> Add staff account</button>}/>
-    <section className="panel table-panel"><div className="table-toolbar"><div><SectionHeading title="Hospital accounts"/><p className="table-caption">Passwords are stored as secure hashes. Give initial passwords privately.</p></div><span className="subtle-label">{staff.items.filter((item) => item.active).length} active</span></div><LoadingOrError loading={staff.loading} error={staff.error}/>{!staff.loading && <div className="table-scroll"><table><thead><tr><th>Staff member</th><th>Email sign-in</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody>{staff.items.map((account) => <tr key={account.id}><td><strong>{account.full_name}</strong></td><td>{account.email}</td><td><span className="status status-scheduled">{account.role}</span></td><td><span className={account.active ? "status status-completed" : "status status-cancelled"}>{account.active ? "Active" : "Disabled"}</span></td><td><button className="small-action" disabled={account.id === Number(JSON.parse(sessionStorage.getItem("careflow-user") || "{}").id) && account.active} onClick={() => void setActive(account)}>{account.active ? "Disable account" : "Enable account"}</button></td></tr>)}</tbody></table>{staff.items.length === 0 && <Empty text="No staff accounts yet."/>}</div>}</section>
+  const patientsWithoutLogin = patients.items.filter((patient) => patient.email && !staff.items.some((account) => account.patient_id === patient.id));
+  return <><PageTitle eyebrow="ADMINISTRATION" title="Staff accounts" description="Create separate sign-ins for staff and registered patients." action={<div style={{display:"flex",gap:8,flexWrap:"wrap"}}><button className="secondary-button" onClick={() => setPatientLoginOpen(true)}><Plus size={16}/> Add patient login</button><button className="primary-button" onClick={() => setOpen(true)}><Plus size={16}/> Add staff account</button></div>}/>
+    <section className="panel table-panel"><div className="table-toolbar"><div><SectionHeading title="Hospital accounts"/><p className="table-caption">Passwords are stored as secure hashes. Give initial passwords privately.</p></div><span className="subtle-label">{staff.items.filter((item) => item.active).length} active</span></div><LoadingOrError loading={staff.loading || patients.loading} error={staff.error || patients.error}/>{!staff.loading && !patients.loading && <div className="table-scroll"><table><thead><tr><th>Account holder</th><th>Email sign-in</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody>{staff.items.map((account) => <tr key={account.id}><td><strong>{account.full_name}</strong></td><td>{account.email}</td><td><span className="status status-scheduled">{account.role === "patient" ? "Patient portal" : account.role}</span></td><td><span className={account.active ? "status status-completed" : "status status-cancelled"}>{account.active ? "Active" : "Disabled"}</span></td><td><button className="small-action" disabled={account.id === Number(JSON.parse(sessionStorage.getItem("careflow-user") || "{}").id) && account.active} onClick={() => void setActive(account)}>{account.active ? "Disable account" : "Enable account"}</button></td></tr>)}</tbody></table>{staff.items.length === 0 && <Empty text="No staff accounts yet."/>}</div>}</section>
     {open && <Modal title="Create staff account" close={() => setOpen(false)}><form className="form-grid" onSubmit={createAccount}>
       <Field label="Staff member name"><input name="full_name" required minLength={2} maxLength={160} autoComplete="name"/></Field>
       <Field label="Email used to sign in"><input name="email" type="email" required maxLength={255} autoComplete="email"/></Field>
@@ -190,6 +215,13 @@ function StaffPage({ token, flash }: { token: string; flash: Notice }) {
       <Field label="Temporary CareFlow password"><input name="password" type="password" minLength={12} maxLength={128} autoComplete="new-password" required/><small>At least 12 characters, with a letter and a number. Ask them to change it after their first sign-in.</small></Field>
       <p className="form-span muted">This is a CareFlow password, not their email password. Share it privately; it is never sent by this app.</p>
       <div className="form-span"><FormActions busy={busy} onCancel={() => setOpen(false)} label="Create account"/></div>
+    </form></Modal>}
+    {patientLoginOpen && <Modal title="Create patient login" close={() => setPatientLoginOpen(false)}><form className="form-grid" onSubmit={createPatientLogin}>
+      <Field label="Registered patient"><select name="patient_id" required defaultValue=""><option value="" disabled>Select patient</option>{patientsWithoutLogin.map((patient) => <option key={patient.id} value={patient.id}>{patient.full_name} · {patient.email}</option>)}</select></Field>
+      {patientsWithoutLogin.length === 0 && <p className="form-span muted">No eligible patient records yet. Register a patient and add their email address first.</p>}
+      <Field label="Temporary CareFlow password"><input name="password" type="password" minLength={12} maxLength={128} autoComplete="new-password" required/><small>At least 12 characters, with a letter and a number.</small></Field>
+      <p className="form-span muted">This links the login to one existing patient record. Verify the patient’s identity before sharing the password. This learning demo is not ready for real medical records.</p>
+      <div className="form-span"><FormActions busy={busy} onCancel={() => setPatientLoginOpen(false)} label="Create patient login"/></div>
     </form></Modal>}
   </>;
 }
@@ -240,6 +272,64 @@ function Dashboard({ token, flash }: { token: string; flash: Notice }) {
     </>}
   </>;
 }
+function PatientPortalPage({ token }: { token: string; flash: Notice }) {
+  const [portal, setPortal] = useState<PatientPortal | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const load = useCallback(() => {
+    setLoading(true);
+    void api<PatientPortal>("/api/v1/patient-portal", token).then(setPortal).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load your records")).finally(() => setLoading(false));
+  }, [token]);
+  useEffect(() => { load(); }, [load]);
+  const openAppointments = portal?.appointments.filter((item) => !["completed", "cancelled"].includes(item.status)) || [];
+  const pendingLabs = portal?.labs.filter((item) => ["pending", "processing"].includes(item.status)) || [];
+  return <><PageTitle eyebrow="PATIENT PORTAL" title={portal ? `Welcome, ${portal.patient.full_name}` : "My health"} description="Your profile, appointments, visit records, test results, prescriptions, and bills." action={<button className="secondary-button" onClick={load}><Activity size={16}/> Refresh</button>}/>
+    <LoadingOrError loading={loading} error={error}/>
+    {portal && <>
+      <div className="metrics-grid compact-metrics">
+        <MetricCard icon={CalendarDays} label="Upcoming appointments" value={String(openAppointments.length).padStart(2, "0")} change="Your scheduled care" tone="mint"/>
+        <MetricCard icon={FlaskConical} label="Tests in progress" value={String(pendingLabs.length).padStart(2, "0")} change="Pending or processing" tone="amber"/>
+        <MetricCard icon={ClipboardList} label="Visit records" value={String(portal.encounters.length).padStart(2, "0")} change="Recorded consultations" tone="blue"/>
+      </div>
+      <section className="panel portal-panel">
+        <SectionHeading title="My details" action={<span className="record-id">{portal.patient.medical_record_number}</span>}/>
+        <div className="portal-profile-grid">
+          <div><span>Date of birth</span><strong>{dateLabel(portal.patient.date_of_birth, { year: "numeric", month: "short", day: "numeric" })}</strong></div>
+          <div><span>Sex</span><strong>{portal.patient.sex || "Not specified"}</strong></div>
+          <div><span>Blood group</span><strong>{portal.patient.blood_group || "Unknown"}</strong></div>
+          <div><span>Phone</span><strong>{portal.patient.phone || "Not recorded"}</strong></div>
+          <div><span>Email</span><strong>{portal.patient.email || "Not recorded"}</strong></div>
+          <div><span>Address</span><strong>{portal.patient.address || "Not recorded"}</strong></div>
+          <div className="portal-allergy"><span>Allergies on record</span><strong>{portal.patient.allergies || "None recorded"}</strong></div>
+        </div>
+      </section>
+      <div className="patient-portal-grid">
+        <section className="panel portal-panel"><SectionHeading title="Appointments"/><div className="portal-record-list">
+          {portal.appointments.map((item) => <article className="portal-record" key={item.id}><div><strong>{item.reason}</strong><span>{dateLabel(item.scheduled_at, { weekday: "short", month: "short", day: "numeric", year: "numeric" })} · {timeLabel(item.scheduled_at)}</span><span>{item.provider_name}</span></div><span className={classStatus(item.status)}>{item.status.replaceAll("_", " ")}</span></article>)}
+          {portal.appointments.length === 0 && <Empty text="No appointments are recorded yet."/>}
+        </div></section>
+        <section className="panel portal-panel"><SectionHeading title="Visit records"/><div className="portal-record-list">
+          {portal.encounters.map((item) => <article className="portal-record portal-record-block" key={item.id}><div><strong>{item.chief_complaint}</strong><span>{dateLabel(item.created_at, { year: "numeric", month: "short", day: "numeric" })} · {item.provider_name}</span><span><b>Assessment:</b> {item.clinician_assessment || "Not entered"}</span><span><b>Plan:</b> {item.plan || "Not entered"}</span>{Object.keys(item.vitals || {}).length > 0 && <span><b>Recorded observations:</b> {Object.entries(item.vitals).map(([key, value]) => `${key.replaceAll("_", " ")}: ${value}`).join(" · ")}</span>}</div></article>)}
+          {portal.encounters.length === 0 && <Empty text="No visit records are available yet."/>}
+        </div></section>
+        <section className="panel portal-panel"><SectionHeading title="Lab results"/><div className="portal-record-list">
+          {portal.labs.map((item) => <article className="portal-record" key={item.id}><div><strong>{item.test_name}</strong><span>{dateLabel(item.ordered_at, { year: "numeric", month: "short", day: "numeric" })}</span>{item.result && <span><b>Result:</b> {item.result}</span>}</div><span className={classStatus(item.status)}>{item.status}</span></article>)}
+          {portal.labs.length === 0 && <Empty text="No lab tests are recorded yet."/>}
+        </div></section>
+        <section className="panel portal-panel"><SectionHeading title="Prescriptions"/><div className="portal-record-list">
+          {portal.prescriptions.map((item) => <article className="portal-record" key={item.id}><div><strong>{item.medication_name}</strong><span>{item.dosage} · {item.frequency} · {item.duration_days} days</span><span>{dateLabel(item.created_at, { year: "numeric", month: "short", day: "numeric" })}</span></div><span className={classStatus(item.status)}>{item.status}</span></article>)}
+          {portal.prescriptions.length === 0 && <Empty text="No prescriptions are recorded yet."/>}
+        </div></section>
+        <section className="panel portal-panel portal-billing"><SectionHeading title="Bills"/><div className="portal-record-list">
+          {portal.invoices.map((item) => <article className="portal-record" key={item.id}><div><strong>{money(item.total, item.currency)}</strong><span>{dateLabel(item.created_at, { year: "numeric", month: "short", day: "numeric" })} · {item.lines.map((line) => line.description).join(", ")}</span></div><span className={classStatus(item.status)}>{item.status}</span></article>)}
+          {portal.invoices.length === 0 && <Empty text="No bills are recorded yet."/>}
+        </div></section>
+      </div>
+      <p className="portal-notice"><ShieldCheck size={15}/>{portal.notice} If anything looks wrong, contact the hospital.</p>
+    </>}
+  </>;
+}
+
 function MetricCard({ icon: Icon, label, value, change, tone }: { icon: typeof Users; label: string; value: string; change: string; tone: string }) {
   return <div className="metric-card"><div className={`metric-icon metric-${tone}`}><Icon size={19}/></div><div className="metric-label">{label}</div><div className="metric-value">{value}</div><div className="metric-change"><span className="change-neutral"><ArrowDownRight size={13}/></span>{change}</div></div>;
 }

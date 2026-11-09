@@ -287,10 +287,27 @@ def create_staff_user(
     email = payload.email.lower()
     if db.scalar(select(User.id).where(User.email == email)) is not None:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
-    user = User(email=email, full_name=payload.full_name.strip(), role=payload.role, password_hash=hash_password(payload.password))
+    patient = None
+    if payload.role == "patient":
+        if payload.patient_id is None:
+            raise HTTPException(status_code=422, detail="Choose the patient record this login belongs to")
+        patient = ensure_patient(db, payload.patient_id)
+        if not patient.email or patient.email.strip().lower() != email:
+            raise HTTPException(status_code=422, detail="Use the email address already recorded for this patient")
+        if db.scalar(select(User.id).where(User.patient_id == patient.id)) is not None:
+            raise HTTPException(status_code=409, detail="This patient already has a CareFlow login")
+    elif payload.patient_id is not None:
+        raise HTTPException(status_code=422, detail="Patient records can only be linked to patient logins")
+    user = User(
+        email=email,
+        full_name=patient.full_name if patient else payload.full_name.strip(),
+        role=payload.role,
+        patient_id=patient.id if patient else None,
+        password_hash=hash_password(payload.password),
+    )
     db.add(user)
     db.flush()
-    audit(db, admin, "staff_account_created", "user", user.id, f"role={user.role}")
+    audit(db, admin, "patient.portal_account_created" if patient else "staff_account_created", "user", user.id, f"role={user.role}")
     db.commit()
     db.refresh(user)
     return user
@@ -317,6 +334,62 @@ def set_staff_user_active(
     db.commit()
     db.refresh(target)
     return target
+
+
+@app.get("/api/v1/patient-portal", tags=["patient portal"])
+def patient_portal(
+    db: DbDep,
+    user: Annotated[User, Depends(require_roles("patient"))],
+) -> dict:
+    if user.patient_id is None:
+        raise HTTPException(status_code=403, detail="This patient login is not linked to a patient record")
+    patient = ensure_patient(db, user.patient_id)
+    appointments = db.scalars(
+        select(Appointment).where(Appointment.patient_id == patient.id).order_by(Appointment.scheduled_at.desc()).limit(100)
+    ).all()
+    encounters = db.scalars(
+        select(Encounter).where(Encounter.patient_id == patient.id).order_by(Encounter.created_at.desc()).limit(100)
+    ).all()
+    labs = db.scalars(
+        select(LabOrder).where(LabOrder.patient_id == patient.id).order_by(LabOrder.ordered_at.desc()).limit(100)
+    ).all()
+    prescriptions = db.scalars(
+        select(Prescription).where(Prescription.patient_id == patient.id).order_by(Prescription.created_at.desc()).limit(100)
+    ).all()
+    invoices = db.scalars(
+        select(Invoice).where(Invoice.patient_id == patient.id).order_by(Invoice.created_at.desc()).limit(100)
+    ).all()
+    audit(db, user, "patient.portal_viewed", "patient", patient.id)
+    db.commit()
+    return {
+        "patient": patient,
+        "appointments": [
+            {
+                "id": item.id,
+                "provider_name": db.get(Provider, item.provider_id).full_name if db.get(Provider, item.provider_id) else "Care team",
+                "scheduled_at": item.scheduled_at,
+                "reason": item.reason,
+                "status": item.status,
+            }
+            for item in appointments
+        ],
+        "encounters": [
+            {
+                "id": item.id,
+                "chief_complaint": item.chief_complaint,
+                "clinician_assessment": item.clinician_assessment,
+                "plan": item.plan,
+                "vitals": item.vitals,
+                "created_at": item.created_at,
+                "provider_name": db.get(Provider, item.provider_id).full_name if db.get(Provider, item.provider_id) else "Care team",
+            }
+            for item in encounters
+        ],
+        "labs": labs,
+        "prescriptions": [prescription_view(db, item) for item in prescriptions],
+        "invoices": [invoice_view(db, item) for item in invoices],
+        "notice": "This portal displays the signed-in patient's own records. Verify information with the hospital care team.",
+    }
 
 
 @app.get("/api/v1/providers", response_model=list[ProviderOut], tags=["appointments"])

@@ -156,6 +156,23 @@ td strong { color: #354459; font-size: 9px; font-weight: 700; }
 .encounter-title { display: flex; align-items: center; gap: 9px; }.encounter-title strong { color: #344358; font-size: 10px; }
 .encounter-main p { color: #718094; font-size: 9px; margin: 5px 0; }
 .encounter-meta { color: #a0aab6; font-size: 8px; }
+.portal-panel { padding: 18px; }
+.portal-profile-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 15px; padding: 18px 2px 3px; }
+.portal-profile-grid > div { display: grid; gap: 5px; min-width: 0; }
+.portal-profile-grid span, .portal-record > div > span { color: #8b97a6; font-size: 11px; }
+.portal-profile-grid strong { color: #344358; font-size: 12px; overflow-wrap: anywhere; }
+.portal-allergy { grid-column: 1 / -1; border-top: 1px solid #edf1f5; padding-top: 12px; }
+.patient-portal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+.portal-record-list { display: grid; }
+.portal-record { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 13px 0; border-top: 1px solid #edf1f5; }
+.portal-record > div { display: grid; gap: 5px; min-width: 0; }
+.portal-record > div > strong { color: #344358; font-size: 12px; }
+.portal-record-block { display: block; }
+.portal-record-block > div > span { line-height: 1.5; }
+.portal-record > .status { flex: 0 0 auto; }
+.portal-billing { grid-column: 1 / -1; }
+.portal-notice { display: flex; align-items: flex-start; gap: 8px; color: #748094; font-size: 11px; line-height: 1.5; margin: 16px 2px 0; }
+.portal-notice svg { flex: 0 0 auto; color: #36a18d; }
 .prep-panel { padding: 18px; }
 .prep-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: #3ca991; background: #e9f7f2; margin-bottom: 14px; }
 .prep-panel h2 { font: 700 14px Manrope,sans-serif; color: #26354a; margin: 0 0 7px; }
@@ -242,6 +259,9 @@ td strong { color: #354459; font-size: 9px; font-weight: 700; }
   .department-panel { min-height: auto; }
   .clinical-layout { grid-template-columns: 1fr; }
   .ai-demo-layout { grid-template-columns: 1fr; }
+  .patient-portal-grid { grid-template-columns: 1fr; }
+  .portal-billing { grid-column: auto; }
+  .portal-profile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workflow-strip { flex-wrap: wrap; }.workflow-strip > div:first-child { flex-basis: 100%; }
   .login-screen { grid-template-columns: 1fr; }.login-art { display: none; }.login-panel { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
 }

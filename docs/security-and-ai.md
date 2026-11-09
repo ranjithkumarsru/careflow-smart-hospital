@@ -19,6 +19,8 @@ This MVP is not certified, compliance-reviewed, or hardened for protected health
 
 No PHI should be sent to external AI providers from this demo. No generative model is connected. The "AI Assistant Demo" page uses fictional examples and prepared replies only; it is a user-interface simulation, not a functioning AI model. The separate "visit preparation" feature is a deterministic chart-context assembly that quotes structured records already in the database. It does not infer a condition, rank clinical risk, recommend treatment, or write back to the chart. A clinician must review the source records.
 
+The patient portal authenticates patients using administrator-created accounts linked to one existing patient record. Its API returns records only for the patient linked to the signed-in account; it does not accept a patient ID from the browser. This educational implementation does not verify email ownership, support caregiver/proxy access, or provide production-grade identity proofing. Verify identity before creating a patient login, share temporary passwords privately, and do not use real patient information until the system has passed a complete privacy, security, and clinical review.
+
 For future AI work, document intended use, input provenance, model/version, limitations, evaluation datasets, bias analysis, human oversight, review/override, audit trail, and rollback. Never present an AI output as a diagnosis or replace clinician judgment.
 
 ## Demo credential warning

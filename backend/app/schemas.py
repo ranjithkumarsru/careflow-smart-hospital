@@ -22,7 +22,8 @@ class StaffUserCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=2, max_length=160)
     password: str = Field(min_length=12, max_length=128)
-    role: Literal["admin", "reception", "clinician", "lab", "pharmacy", "billing"]
+    role: Literal["admin", "reception", "clinician", "lab", "pharmacy", "billing", "patient"]
+    patient_id: int | None = None
 
     @field_validator("password")
     @classmethod
@@ -33,6 +34,7 @@ class StaffUserCreate(BaseModel):
 
 
 class StaffUserOut(UserOut):
+    patient_id: int | None = None
     active: bool
     created_at: datetime
 

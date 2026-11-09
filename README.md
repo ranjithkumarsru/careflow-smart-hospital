@@ -15,6 +15,7 @@ CareFlow is a full-stack educational MVP for coordinating hospital operations. I
 - Department activity and operational dashboard
 - JWT authentication, password hashing, role checks, and audit events
 - Administrator-managed staff accounts with individual roles, account disabling, and password changes
+- Admin-created patient logins linked to one registered record, with a patient-only portal for that patient's profile, visits, appointments, lab results, prescriptions, and bills
 - Temporary login throttling for repeated failed passwords and basic API security headers
 - A clinician-reviewed chart-context draft assembled from recorded data; it does not generate diagnoses or treatment recommendations
 - An AI Assistant demo page with fictional sample prompts and prepared replies; no AI model is connected
@@ -39,7 +40,7 @@ Demo sign-in:
 
 The demo credentials and seeded records are for local use only. Set `SEED_DEMO_DATA=false`, change the admin password, and set a long random `SECRET_KEY` before any shared deployment.
 
-After signing in as an administrator, open **Staff accounts** to create a CareFlow login for each staff member. Use their email as the username, set an initial CareFlow password, assign their role, and share the password privately. Staff can change it from the key icon beside their profile. Disable accounts when access should end. The app does not email invitations or password resets. These safeguards are educational-demo protections, not a production hospital security program; do not enter real patient information.
+After signing in as an administrator, open **Staff accounts** to create a CareFlow login for each staff member. Use their email as the username, set an initial CareFlow password, assign their role, and share the password privately. Use **Add patient login** to link an existing patient record to the email already saved on that record. Verify the patient's identity before sharing the temporary password. Patients can then see only their own portal details. Accounts can be disabled when access should end. The app does not email invitations or verify email ownership. These safeguards are educational-demo protections, not a production hospital security program; do not enter real patient information.
 
 ## Run without Docker
 
