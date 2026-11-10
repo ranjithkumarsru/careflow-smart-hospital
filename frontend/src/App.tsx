@@ -20,12 +20,13 @@ type LabOrder = { id: number; patient_id: number; test_name: string; status: str
 type Medication = { id: number; name: string; strength: string; quantity_on_hand: number; reorder_level: number; unit_price: number };
 type Prescription = { id: number; patient_id: number; medication_id: number; medication_name: string; patient_name: string; dosage: string; frequency: string; duration_days: number; status: string; created_at: string };
 type InvoiceLine = { id: number; description: string; quantity: number; unit_price: number };
-type Invoice = { id: number; patient_id: number; patient_name: string; status: string; currency: string; total: number; created_at: string; lines: InvoiceLine[] };
+type Invoice = { id: number; patient_id: number; patient_name: string; status: string; currency: string; total: number; created_at: string; paid_at: string | null; lines: InvoiceLine[] };
 type Summary = { patients_total: number; appointments_today: number; pending_labs: number; low_stock_count: number; outstanding_balance: string; currency: string; recent_appointments: Appointment[]; department_activity: { department: string; appointments: number }[] };
 type PatientPortal = {
   patient: Patient & { address: string };
+  login_email: string;
   appointments: Array<Pick<Appointment, "id" | "provider_name" | "scheduled_at" | "reason" | "status">>;
-  encounters: Array<Pick<Encounter, "id" | "chief_complaint" | "clinician_assessment" | "plan" | "created_at"> & { provider_name: string; vitals: Record<string, string | number> }>;
+  encounters: Array<Pick<Encounter, "id" | "chief_complaint" | "clinician_notes" | "clinician_assessment" | "plan" | "created_at"> & { provider_name: string; vitals: Record<string, string | number> }>;
   labs: LabOrder[];
   prescriptions: Prescription[];
   invoices: Invoice[];
@@ -52,6 +53,13 @@ async function api<T>(path: string, token: string, init: RequestInit = {}): Prom
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
+    if (response.status === 401 && token) {
+      sessionStorage.removeItem("careflow-token");
+      sessionStorage.removeItem("careflow-user");
+      window.location.reload();
+      throw new Error("Your sign-in session expired. Please sign in again.");
+    }
+    if (response.status >= 500) throw new Error("CareFlow’s hospital server could not load this information. Please try again. If it keeps happening, ask the administrator to check that the hospital API is running.");
     throw new Error(payload.detail || `Request failed (${response.status})`);
   }
   return response.json() as Promise<T>;
@@ -191,8 +199,8 @@ function StaffPage({ token, flash }: { token: string; flash: Notice }) {
     event.preventDefault(); setBusy(true);
     const data = new FormData(event.currentTarget);
     const patient = patients.items.find((item) => item.id === Number(data.get("patient_id")));
-    if (!patient?.email) { flash("Choose a patient with an email address on their record", "error"); setBusy(false); return; }
-    const payload = { full_name: patient.full_name, email: patient.email, role: "patient", patient_id: patient.id, password: data.get("password") };
+    if (!patient) { flash("Choose a registered patient", "error"); setBusy(false); return; }
+    const payload = { full_name: patient.full_name, email: data.get("login_email"), role: "patient", patient_id: patient.id, password: data.get("password") };
     try {
       await api<StaffAccount>("/api/v1/users", token, { method: "POST", body: JSON.stringify(payload) });
       setPatientLoginOpen(false); flash("Patient login created. Share the temporary password privately."); void staff.refresh();
@@ -205,7 +213,7 @@ function StaffPage({ token, flash }: { token: string; flash: Notice }) {
       flash(account.active ? "Staff account disabled" : "Staff account enabled"); void staff.refresh();
     } catch (cause) { flash(cause instanceof Error ? cause.message : "Could not update account", "error"); }
   }
-  const patientsWithoutLogin = patients.items.filter((patient) => patient.email && !staff.items.some((account) => account.patient_id === patient.id));
+  const patientsWithoutLogin = patients.items.filter((patient) => !staff.items.some((account) => account.patient_id === patient.id));
   return <><PageTitle eyebrow="ADMINISTRATION" title="Staff accounts" description="Create separate sign-ins for staff and registered patients." action={<div style={{display:"flex",gap:8,flexWrap:"wrap"}}><button className="secondary-button" onClick={() => setPatientLoginOpen(true)}><Plus size={16}/> Add patient login</button><button className="primary-button" onClick={() => setOpen(true)}><Plus size={16}/> Add staff account</button></div>}/>
     <section className="panel table-panel"><div className="table-toolbar"><div><SectionHeading title="Hospital accounts"/><p className="table-caption">Passwords are stored as secure hashes. Give initial passwords privately.</p></div><span className="subtle-label">{staff.items.filter((item) => item.active).length} active</span></div><LoadingOrError loading={staff.loading || patients.loading} error={staff.error || patients.error}/>{!staff.loading && !patients.loading && <div className="table-scroll"><table><thead><tr><th>Account holder</th><th>Email sign-in</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody>{staff.items.map((account) => <tr key={account.id}><td><strong>{account.full_name}</strong></td><td>{account.email}</td><td><span className="status status-scheduled">{account.role === "patient" ? "Patient portal" : account.role}</span></td><td><span className={account.active ? "status status-completed" : "status status-cancelled"}>{account.active ? "Active" : "Disabled"}</span></td><td><button className="small-action" disabled={account.id === Number(JSON.parse(sessionStorage.getItem("careflow-user") || "{}").id) && account.active} onClick={() => void setActive(account)}>{account.active ? "Disable account" : "Enable account"}</button></td></tr>)}</tbody></table>{staff.items.length === 0 && <Empty text="No staff accounts yet."/>}</div>}</section>
     {open && <Modal title="Create staff account" close={() => setOpen(false)}><form className="form-grid" onSubmit={createAccount}>
@@ -217,10 +225,11 @@ function StaffPage({ token, flash }: { token: string; flash: Notice }) {
       <div className="form-span"><FormActions busy={busy} onCancel={() => setOpen(false)} label="Create account"/></div>
     </form></Modal>}
     {patientLoginOpen && <Modal title="Create patient login" close={() => setPatientLoginOpen(false)}><form className="form-grid" onSubmit={createPatientLogin}>
-      <Field label="Registered patient"><select name="patient_id" required defaultValue=""><option value="" disabled>Select patient</option>{patientsWithoutLogin.map((patient) => <option key={patient.id} value={patient.id}>{patient.full_name} · {patient.email}</option>)}</select></Field>
-      {patientsWithoutLogin.length === 0 && <p className="form-span muted">No eligible patient records yet. Register a patient and add their email address first.</p>}
+      <Field label="Registered patient"><select name="patient_id" required defaultValue=""><option value="" disabled>Select patient</option>{patientsWithoutLogin.map((patient) => <option key={patient.id} value={patient.id}>{patient.full_name} · {patient.medical_record_number}</option>)}</select></Field>
+      {patientsWithoutLogin.length === 0 && <p className="form-span muted">No eligible patient records yet. Register a patient first.</p>}
+      <Field label="Patient sign-in email"><input name="login_email" type="email" required maxLength={255} autoComplete="email"/><small>This can be different from the contact email on the patient record.</small></Field>
       <Field label="Temporary CareFlow password"><input name="password" type="password" minLength={12} maxLength={128} autoComplete="new-password" required/><small>At least 12 characters, with a letter and a number.</small></Field>
-      <p className="form-span muted">This links the login to one existing patient record. Verify the patient’s identity before sharing the password. This learning demo is not ready for real medical records.</p>
+      <p className="form-span muted">This links the login to one existing patient record. Confirm the patient’s identity and sign-in email before sharing the CareFlow password. This learning demo is not ready for real medical records.</p>
       <div className="form-span"><FormActions busy={busy} onCancel={() => setPatientLoginOpen(false)} label="Create patient login"/></div>
     </form></Modal>}
   </>;
@@ -278,13 +287,15 @@ function PatientPortalPage({ token }: { token: string; flash: Notice }) {
   const [error, setError] = useState("");
   const load = useCallback(() => {
     setLoading(true);
-    void api<PatientPortal>("/api/v1/patient-portal", token).then(setPortal).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load your records")).finally(() => setLoading(false));
+    setError("");
+    void api<PatientPortal>("/api/v1/patient-portal", token).then((data) => { setPortal(data); setError(""); }).catch((cause) => setError(cause instanceof Error ? cause.message : "Could not load your records")).finally(() => setLoading(false));
   }, [token]);
   useEffect(() => { load(); }, [load]);
   const openAppointments = portal?.appointments.filter((item) => !["completed", "cancelled"].includes(item.status)) || [];
   const pendingLabs = portal?.labs.filter((item) => ["pending", "processing"].includes(item.status)) || [];
   return <><PageTitle eyebrow="PATIENT PORTAL" title={portal ? `Welcome, ${portal.patient.full_name}` : "My health"} description="Your profile, appointments, visit records, test results, prescriptions, and bills." action={<button className="secondary-button" onClick={load}><Activity size={16}/> Refresh</button>}/>
-    <LoadingOrError loading={loading} error={error}/>
+    {loading && !portal && <LoadingOrError loading error=""/>}
+    {error && !loading && <section className="panel portal-error" role="alert"><div><strong>We couldn’t load your health record</strong><p>{error}</p><small>Your account and records have not been changed. Try refreshing this page.</small></div><button className="secondary-button" onClick={load}><Activity size={16}/> Try again</button></section>}
     {portal && <>
       <div className="metrics-grid compact-metrics">
         <MetricCard icon={CalendarDays} label="Upcoming appointments" value={String(openAppointments.length).padStart(2, "0")} change="Your scheduled care" tone="mint"/>
@@ -299,6 +310,7 @@ function PatientPortalPage({ token }: { token: string; flash: Notice }) {
           <div><span>Blood group</span><strong>{portal.patient.blood_group || "Unknown"}</strong></div>
           <div><span>Phone</span><strong>{portal.patient.phone || "Not recorded"}</strong></div>
           <div><span>Email</span><strong>{portal.patient.email || "Not recorded"}</strong></div>
+          <div><span>Patient portal sign-in</span><strong>{portal.login_email}</strong></div>
           <div><span>Address</span><strong>{portal.patient.address || "Not recorded"}</strong></div>
           <div className="portal-allergy"><span>Allergies on record</span><strong>{portal.patient.allergies || "None recorded"}</strong></div>
         </div>
@@ -309,7 +321,7 @@ function PatientPortalPage({ token }: { token: string; flash: Notice }) {
           {portal.appointments.length === 0 && <Empty text="No appointments are recorded yet."/>}
         </div></section>
         <section className="panel portal-panel"><SectionHeading title="Visit records"/><div className="portal-record-list">
-          {portal.encounters.map((item) => <article className="portal-record portal-record-block" key={item.id}><div><strong>{item.chief_complaint}</strong><span>{dateLabel(item.created_at, { year: "numeric", month: "short", day: "numeric" })} · {item.provider_name}</span><span><b>Assessment:</b> {item.clinician_assessment || "Not entered"}</span><span><b>Plan:</b> {item.plan || "Not entered"}</span>{Object.keys(item.vitals || {}).length > 0 && <span><b>Recorded observations:</b> {Object.entries(item.vitals).map(([key, value]) => `${key.replaceAll("_", " ")}: ${value}`).join(" · ")}</span>}</div></article>)}
+          {portal.encounters.map((item) => <article className="portal-record portal-record-block" key={item.id}><div><strong>{item.chief_complaint}</strong><span>{dateLabel(item.created_at, { year: "numeric", month: "short", day: "numeric" })} · {item.provider_name}</span><span><b>Assessment:</b> {item.clinician_assessment || "Not entered"}</span><span><b>Care plan:</b> {item.plan || "Not entered"}</span>{item.clinician_notes && <span><b>Visit notes:</b> {item.clinician_notes}</span>}{Object.keys(item.vitals || {}).length > 0 && <span><b>Recorded observations:</b> {Object.entries(item.vitals).map(([key, value]) => `${key.replaceAll("_", " ")}: ${value}`).join(" · ")}</span>}</div></article>)}
           {portal.encounters.length === 0 && <Empty text="No visit records are available yet."/>}
         </div></section>
         <section className="panel portal-panel"><SectionHeading title="Lab results"/><div className="portal-record-list">
@@ -321,7 +333,7 @@ function PatientPortalPage({ token }: { token: string; flash: Notice }) {
           {portal.prescriptions.length === 0 && <Empty text="No prescriptions are recorded yet."/>}
         </div></section>
         <section className="panel portal-panel portal-billing"><SectionHeading title="Bills"/><div className="portal-record-list">
-          {portal.invoices.map((item) => <article className="portal-record" key={item.id}><div><strong>{money(item.total, item.currency)}</strong><span>{dateLabel(item.created_at, { year: "numeric", month: "short", day: "numeric" })} · {item.lines.map((line) => line.description).join(", ")}</span></div><span className={classStatus(item.status)}>{item.status}</span></article>)}
+          {portal.invoices.map((item) => <article className="portal-record portal-record-block" key={item.id}><div><strong>Total: {money(item.total, item.currency)}</strong><span>Bill date: {dateLabel(item.created_at, { year: "numeric", month: "short", day: "numeric" })}{item.paid_at ? ` · Paid ${dateLabel(item.paid_at, { year: "numeric", month: "short", day: "numeric" })}` : ""}</span>{item.lines.map((line) => <span key={line.id}>{line.description} · {line.quantity} × {money(line.unit_price, item.currency)} = {money(line.quantity * line.unit_price, item.currency)}</span>)}</div><span className={classStatus(item.status)}>{item.status}</span></article>)}
           {portal.invoices.length === 0 && <Empty text="No bills are recorded yet."/>}
         </div></section>
       </div>

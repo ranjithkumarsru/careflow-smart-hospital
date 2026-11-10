@@ -157,6 +157,10 @@ td strong { color: #354459; font-size: 9px; font-weight: 700; }
 .encounter-main p { color: #718094; font-size: 9px; margin: 5px 0; }
 .encounter-meta { color: #a0aab6; font-size: 8px; }
 .portal-panel { padding: 18px; }
+.portal-error { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 20px; border-color: #f0d5d5; }
+.portal-error strong { color: #914b4b; font-size: 13px; }
+.portal-error p { color: #7e6670; font-size: 11px; line-height: 1.6; margin: 7px 0; }
+.portal-error small { color: #8b97a6; font-size: 10px; }
 .portal-profile-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 15px; padding: 18px 2px 3px; }
 .portal-profile-grid > div { display: grid; gap: 5px; min-width: 0; }
 .portal-profile-grid span, .portal-record > div > span { color: #8b97a6; font-size: 11px; }

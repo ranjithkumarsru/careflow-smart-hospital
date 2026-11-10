@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import jwt
 from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import func, select
@@ -292,8 +293,6 @@ def create_staff_user(
         if payload.patient_id is None:
             raise HTTPException(status_code=422, detail="Choose the patient record this login belongs to")
         patient = ensure_patient(db, payload.patient_id)
-        if not patient.email or patient.email.strip().lower() != email:
-            raise HTTPException(status_code=422, detail="Use the email address already recorded for this patient")
         if db.scalar(select(User.id).where(User.patient_id == patient.id)) is not None:
             raise HTTPException(status_code=409, detail="This patient already has a CareFlow login")
     elif payload.patient_id is not None:
@@ -361,8 +360,9 @@ def patient_portal(
     ).all()
     audit(db, user, "patient.portal_viewed", "patient", patient.id)
     db.commit()
-    return {
+    return jsonable_encoder({
         "patient": patient,
+        "login_email": user.email,
         "appointments": [
             {
                 "id": item.id,
@@ -377,6 +377,7 @@ def patient_portal(
             {
                 "id": item.id,
                 "chief_complaint": item.chief_complaint,
+                "clinician_notes": item.clinician_notes,
                 "clinician_assessment": item.clinician_assessment,
                 "plan": item.plan,
                 "vitals": item.vitals,
@@ -389,7 +390,7 @@ def patient_portal(
         "prescriptions": [prescription_view(db, item) for item in prescriptions],
         "invoices": [invoice_view(db, item) for item in invoices],
         "notice": "This portal displays the signed-in patient's own records. Verify information with the hospital care team.",
-    }
+    })
 
 
 @app.get("/api/v1/providers", response_model=list[ProviderOut], tags=["appointments"])
