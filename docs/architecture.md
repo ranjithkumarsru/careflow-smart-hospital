@@ -4,14 +4,14 @@
 
 ```mermaid
 flowchart LR
-  Browser[HTML + CSS + JavaScript frontend] -->|Bearer token / JSON| API[Python FastAPI REST API]
+  Browser[React + TypeScript web app] -->|Bearer token / JSON| API[FastAPI REST API]
   API --> ORM[SQLAlchemy]
-  ORM --> DB[(SQLite local / PostgreSQL with Docker)]
+  ORM --> DB[(PostgreSQL 17)]
   API --> Audit[Audit log]
   API --> Support[Chart-context assembler]
 ```
 
-The classroom frontend is written in three main files: `frontend/index.html` for page structure, `frontend/style.css` for appearance, and `frontend/app.js` for page behavior and API calls. Vite serves the files in local development. Python FastAPI is the sole application boundary for database access. The browser keeps its short-lived bearer token in `sessionStorage`; it is cleared when the browser session ends. The API uses role checks at route boundaries. The chart-context assembler reads recorded data and returns its source records without generating a diagnosis.
+The API is the sole application boundary for database access. The browser keeps its short-lived bearer token in `sessionStorage`; it is cleared when the browser session ends. The API uses role checks at route boundaries. The chart-context assembler reads recorded data and returns its source records without generating a diagnosis.
 
 ## Data areas
 
@@ -32,8 +32,6 @@ All routes except `/health` and `/api/v1/auth/login` require a bearer token.
 |---|---|---|
 | POST | `/api/v1/auth/login` | Obtain a short-lived access token |
 | GET | `/api/v1/auth/me` | Current account and role |
-| GET/POST/PATCH | `/api/v1/users` | Administer staff and patient accounts |
-| GET | `/api/v1/patient-portal` | Read the signed-in patient's linked health record |
 | GET/POST | `/api/v1/patients` | Search and register patient records |
 | GET | `/api/v1/patients/{id}` | Read one patient record |
 | GET | `/api/v1/providers` | Read active provider directory |
@@ -51,4 +49,4 @@ Interactive OpenAPI documentation is available at `/docs` while the API is runni
 
 ## Role model
 
-The seeded demo account has the `admin` role. Administrators can create accounts with `reception`, `clinician`, `lab`, `pharmacy`, `billing`, or `patient` roles. Patient accounts are linked to one registered patient record. API route checks enforce these permissions even when a user tries to call an endpoint directly.
+The seeded demo account is `admin`. Routes also recognize `reception`, `clinician`, `lab`, `pharmacy`, and `billing` roles. The MVP does not yet include a user-management screen or account provisioning API; additional accounts must be provisioned by a trusted operator.
