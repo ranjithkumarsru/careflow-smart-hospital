@@ -1,6 +1,6 @@
 # CareFlow — Smart Hospital Management System
 
-CareFlow is a full-stack educational MVP for coordinating hospital operations. It includes a React and TypeScript web app, a FastAPI REST API, and PostgreSQL persistence. The local development profile starts with synthetic demo records so the workflows are visible immediately.
+CareFlow is a full-stack educational MVP for coordinating hospital operations. Its classroom frontend is written in plain HTML, CSS and JavaScript. A Python FastAPI REST API handles sign-in, role permissions and hospital records; SQLite supports the local preview and Docker Compose can start PostgreSQL. The local development profile starts with synthetic demo records so the workflows are visible immediately.
 
 > **For education and demonstrations only.** Do not enter real patient information. This project is not a certified EHR, medical device, diagnostic system, or production-ready healthcare service. Clinical decisions remain with qualified clinicians.
 
@@ -64,6 +64,8 @@ cd frontend
 npm install
 npm run dev
 ```
+
+The classroom frontend is kept in three files: `frontend/index.html` (page structure), `frontend/style.css` (appearance), and `frontend/app.js` (page behavior and REST API calls). Vite only serves these files during local development; the interface itself uses browser HTML, CSS and JavaScript. The older React/TypeScript files under `frontend/src/` are kept as a backup and are not loaded by the classroom frontend.
 
 To use PostgreSQL outside Compose, set `DATABASE_URL` to a SQLAlchemy URL such as `postgresql+psycopg://user:password@localhost:5432/careflow` before starting the API.
 
